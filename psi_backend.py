@@ -1,180 +1,160 @@
-import numpy as np
+import math
+import pandas as pd
 
-# --- 1. CORE CALCULATION FUNCTIONS ---
+class PSI_Undrained_Model:
+    def __init__(self, dop, tp, z, su, ocr, st, alpha, rate, sub_wt_raw, 
+                 ssr_conc, prem_conc, ssr_pet, prem_pet):
+        """
+        Initialize the model with all physical inputs.
+        """
+        self.dop = dop        # Outer Diameter (m)
+        self.tp = tp          # Wall Thickness (m)
+        self.z = z            # Embedment Depth (m)
+        self.su = su          # Undrained Shear Strength (kPa)
+        self.ocr = ocr        # Over Consolidation Ratio
+        self.st = st          # Sensitivity
+        self.alpha = alpha    # Adhesion Factor
+        self.rate = rate      # Displacement Rate
+        self.sub_wt = sub_wt_raw - 10.05  # Effective submerged unit weight adjustment (from VBA)
+        
+        # Coefficients [Low, Best, High]
+        self.ssr_conc = ssr_conc
+        self.prem_conc = prem_conc
+        self.ssr_pet = ssr_pet
+        self.prem_pet = prem_pet
 
-def calculate_effective_weights(Dop, tp, rho_steel=7850, rho_fluid=1000, rho_seawater=1025, g=9.8, klay=2.0):
-    """
-    Calculates weights and Effective Vertical Force V based on inputs.
-    """
-    Dip = Dop - 2 * tp
-    
-    # Weights in kg/m (VBA uses specific constants 7850, 1000, 1025)
-    Wp = (np.pi * (Dop**2 - Dip**2) * rho_steel) / 4
-    Wcon = (np.pi * (Dip**2) * rho_fluid) / 4
-    Wb = (np.pi * (Dop**2) * rho_seawater) / 4
-    
-    # Flooded weight (kN/m)
-    Wpf = ((Wp + Wcon - Wb) * g) / 1000.0
-    
-    # Installation weight (kg/m)
-    Wpins = (np.pi * (Dop**2 - Dip**2) * (rho_steel - rho_seawater)) / 4
-    
-    # Effective Force V (kN/m)
-    V = max((Wpins * klay * g / 1000.0), Wpf)
-    
-    return V, Wp, Wpf
+        # Constants
+        self.g = 9.8
+        self.klay = 2.0
+        self.rho_steel = 7850
+        self.rho_conc = 1000  # From VBA logic (though typically 2400, VBA used 1000 for Wcon calc)
+        self.rho_sw = 1025    # Seawater density
 
-def calculate_qv_and_abm(Dop, Z, Su, gamma_bulk):
-    """
-    Calculates Penetration Area (Abm) and Soil Resistance (Qv).
-    VBA Reference: '4. Geometric & Penetration Resistance (Qv)'
-    """
-    Sub_wt = gamma_bulk - 10.05
-    
-    # Geometric Area (Abm)
-    if Z < Dop / 2:
-        val = Dop * Z - Z**2
-        B = 2 * np.sqrt(val) if val > 0 else 0
-        if Dop > 0 and B > 0:
-            asin_term = np.arcsin(B / Dop)
-            Abm = (asin_term * (Dop**2 / 4)) - (B * (Dop / 4) * np.cos(asin_term))
+    def calculate_weights(self):
+        dip = self.dop - 2 * self.tp
+        
+        # Weight Calculations
+        wp = (math.pi * (self.dop**2 - dip**2) * self.rho_steel) / 4
+        wcon = (math.pi * (dip**2) * self.rho_conc) / 4
+        wb = (math.pi * (self.dop**2) * self.rho_sw) / 4
+        
+        # Flooded weight in kN/m
+        wpf = ((wp + wcon - wb) * self.g) / 1000
+        
+        # Installation weight param
+        wpins = (math.pi * (self.dop**2 - dip**2) * (self.rho_steel - self.rho_sw)) / 4
+        
+        # Effective Vertical Force (V)
+        v = max((wpins * self.klay * self.g / 1000), wpf)
+        
+        return {
+            "Wp": wp, "Wpf": wpf, "V": v, "Dip": dip
+        }
+
+    def calculate_geometry_and_resistance(self, v):
+        # Geometric Parameters
+        if self.z < (self.dop / 2):
+            b_width = 2 * math.sqrt(self.dop * self.z - self.z**2)
+            # Area of immersed segment
+            term1 = math.asin(b_width / self.dop) * (self.dop**2 / 4)
+            term2 = (b_width * (self.dop / 4) * math.cos(math.asin(b_width / self.dop)))
+            abm = term1 - term2
         else:
-            Abm = 0
-    else:
-        # B = Dop (not used in Abm formula for deep but implied)
-        Abm = (np.pi * Dop**2 / 8) + Dop * (Z - Dop / 2)
-        
-    # Vertical Resistance (Qv)
-    if Dop > 0 and Su > 0:
-        term1 = 6 * (Z / Dop)**0.25
-        term2 = 3.4 * (10 * Z / Dop)**0.5
-        min_term = min(term1, term2)
-        
-        Qv = (min_term + (1.5 * Sub_wt * Abm / (Dop * Su))) * Dop * Su
-    else:
-        Qv = 0
-        
-    return Qv, Abm, Sub_wt
+            b_width = self.dop
+            abm = (math.pi * self.dop**2 / 8) + self.dop * (self.z - self.dop / 2)
 
-def calculate_wedging_and_passive(Dop, Z, Su_passive, Sub_wt, rate):
-    """
-    Calculates Wedging Factor (zeta) and Lateral Remaining Resistance.
-    VBA Reference: '5. Wedging and Passive Resistance'
-    """
-    # Wedging Factor (zeta)
-    cosVal = 1 - Z / (Dop / 2)
-    # Clamp value to [-1, 1] for arccos
-    cosVal = max(-1.0, min(1.0, cosVal))
-    
-    beta = np.arccos(cosVal)
-    
-    denom = beta + np.sin(beta) * np.cos(beta)
-    if denom != 0:
-        zeta = (2 * np.sin(beta)) / denom
-    else:
-        zeta = 1.0 # Default fallback
-        
-    # Lateral Remaining Resistance (Fl_remain)
-    Fl_remain = Z * rate * (2 * Su_passive + 0.5 * Sub_wt * Z)
-    
-    return zeta, Fl_remain
+        # Vertical Penetration Resistance (Qv)
+        term_bearing = min(6 * (self.z / self.dop)**0.25, 3.4 * (10 * self.z / self.dop)**0.5)
+        term_bouyancy = (1.5 * self.sub_wt * abm / (self.dop * self.su))
+        qv = (term_bearing + term_bouyancy) * self.dop * self.su
 
-# --- 2. MAIN LOGIC LOOP (REPLACES VBA LOOPS) ---
+        # Wedging Factors
+        cos_val = 1 - self.z / (self.dop / 2)
+        # Clamp value to domain of acos [-1, 1]
+        cos_val = max(-1, min(1, cos_val))
+        
+        beta = math.acos(cos_val)
+        
+        # Avoid division by zero if beta is 0
+        if beta == 0:
+            zeta = 1
+        else:
+            zeta = (2 * math.sin(beta)) / (beta + math.sin(beta) * math.cos(beta))
+            
+        fl_remain = self.z * self.rate * (2 * self.su + 0.5 * self.sub_wt * self.z) # Note: VBA used Range("B14") for Su in formula, assumed Su here.
 
-def run_psi_analysis(inputs):
-    """
-    Main driver function that mimics the VBA Sub 'PSI_Analysis_UndrainedCase'.
-    Takes a dictionary of inputs and returns a list of results for plotting.
-    """
-    # 1. Unpack Inputs
-    Dop = inputs['Dop']
-    tp = inputs['tp']
-    Z = inputs['Z']
-    Su = inputs['Su']
-    OCR = inputs['OCR']
-    St = inputs['St']
-    alpha = inputs['alpha']
-    rate = inputs['rate']
-    gamma_bulk = inputs['gamma_bulk']
-    Su_passive = inputs['Su_passive']
-    
-    # 2. Base Calculations
-    V, Wp, Wpf = calculate_effective_weights(Dop, tp)
-    Qv, Abm, Sub_wt = calculate_qv_and_abm(Dop, Z, Su, gamma_bulk)
-    zeta, Fl_remain = calculate_wedging_and_passive(Dop, Z, Su_passive, Sub_wt, rate)
-    
-    results = {
-        "metrics": {
-            "Wp": Wp, "Wpf": Wpf, "V": V, 
-            "Abm": Abm, "Qv": Qv, "zeta": zeta, 
-            "Fl_remain": Fl_remain, "Check_V_Qv": (V < Qv)
-        },
-        "profiles": []
-    }
-    
-    # 3. Loop over Surfaces (Concrete=0, PET=1) just like VBA 'For i = 1 To 2'
-    surfaces = ["Concrete", "PET"]
-    
-    for i, surf_name in enumerate(surfaces):
-        # VBA uses index 22-38 to grab these. We pass them in specific keys.
-        # Structure: inputs['Concrete_P5_SSR'], etc.
+        return {
+            "Abm": abm, "Qv": qv, "zeta": zeta, "Fl_remain": fl_remain
+        }
+
+    def run_simulation(self):
+        weights = self.calculate_weights()
+        v = weights["V"]
+        geo = self.calculate_geometry_and_resistance(v)
         
-        estimates = ["P5", "P50", "P95"]
+        results = []
+        estimates = ["Low Estimate-P5", "Best Estimate-P50", "High Estimate-P95"]
         
-        for est in estimates:
-            key_base = f"{surf_name}_{est}" # e.g. "Concrete_P5"
-            SSR = inputs[f"{key_base}_SSR"]
-            Prem = inputs[f"{key_base}_Prem"]
-            
-            # --- VBA LOGIC MAPPING ---
-            
-            # Axial Breakout (Abrk)
-            # Abrk = alpha * SSR * OCR ^ Prem * zeta * rate * V
-            Abrk = alpha * SSR * (OCR**Prem) * zeta * rate * V
-            
-            # Axial Residual (Ares)
-            Ares = (1.0 / St) * Abrk
-            
-            # Lateral Breakout (Lbrk)
-            # Lbrk = (alpha * SSR * OCR ^ Prem * rate * V) + Fl_remain
-            Lbrk = (alpha * SSR * (OCR**Prem) * rate * V) + Fl_remain
-            
-            # Lateral Residual (Lres)
-            # Lres = (0.32 + 0.8 * (Z / Dop) ^ 0.8) * V
-            Lres_base = (0.32 + 0.8 * (Z / Dop)**0.8) * V if Dop > 0 else 0
-            
-            if est == "P5":
-                Lres = Lres_base / 1.5
-            elif est == "P95":
-                Lres = Lres_base * 1.5
-            else:
-                Lres = Lres_base
+        # Iterate Surfaces: 1=Concrete, 2=PET
+        surfaces = [
+            ("Concrete", self.ssr_conc, self.prem_conc),
+            ("PET", self.ssr_pet, self.prem_pet)
+        ]
+        
+        for surf_name, ssr_list, prem_list in surfaces:
+            for j in range(3): # 0, 1, 2 for Low, Best, High
+                est_name = estimates[j]
+                ssr = ssr_list[j]
+                prem = prem_list[j]
                 
-            # Displacements (using logic from VBA Choose function)
-            Dop_mm = Dop * 1000.0
-            
-            if est == "P5":
-                Xb = min(1.25, 0.0025 * Dop_mm)
-                Xr = min(7.5, 0.015 * Dop_mm)
-                Yb = (0.004 + 0.02 * (Z / Dop)) * Dop_mm
-                Yr = 0.6 * Dop_mm
-            elif est == "P50":
-                Xb = min(5.0, 0.01 * Dop_mm)
-                Xr = min(30.0, 0.06 * Dop_mm)
-                Yb = (0.02 + 0.25 * (Z / Dop)) * Dop_mm
-                Yr = 1.5 * Dop_mm
-            else: # P95
-                Xb = max(50.0, 0.01 * Dop_mm)
-                Xr = max(250.0, 0.5 * Dop_mm)
-                Yb = (0.1 + 0.7 * (Z / Dop)) * Dop_mm
-                Yr = 2.8 * Dop_mm
+                # Breakout and Residual Forces
+                abrk = self.alpha * ssr * (self.ocr ** prem) * geo["zeta"] * self.rate * v
+                ares = (1 / self.st) * abrk
+                lbrk = (self.alpha * ssr * (self.ocr ** prem) * self.rate * v) + geo["Fl_remain"]
                 
-            # Save data for plotting
-            results["profiles"].append({
-                "Surface": surf_name,
-                "Estimate": est,
-                "Axial": {"BreakForce": Abrk, "BreakDisp": Xb, "ResForce": Ares, "ResDisp": Xr},
-                "Lateral": {"BreakForce": Lbrk, "BreakDisp": Yb, "ResForce": Lres, "ResDisp": Yr}
-            })
-            
-    return results
+                # Lateral Residual Calculation
+                base_lres = (0.32 + 0.8 * (self.z / self.dop)**0.8) * v
+                if j == 0: # Low
+                    lres = base_lres / 1.5
+                elif j == 2: # High
+                    lres = base_lres * 1.5
+                else:
+                    lres = base_lres
+                
+                # Displacement Calculations (converting m to mm logic from VBA)
+                dop_mm = self.dop * 1000
+                
+                # Xb (Axial Break Displacement)
+                if j == 0: xb = min(1.25, 0.0025 * dop_mm)
+                elif j == 1: xb = min(5, 0.01 * dop_mm)
+                else: xb = max(50, 0.01 * dop_mm)
+                
+                # Xr (Axial Res Displacement)
+                if j == 0: xr = min(7.5, 0.015 * dop_mm)
+                elif j == 1: xr = min(30, 0.06 * dop_mm)
+                else: xr = max(250, 0.5 * dop_mm)
+                
+                # Yb (Lateral Break Displacement)
+                if j == 0: yb = (0.004 + 0.02 * (self.z / self.dop)) * dop_mm
+                elif j == 1: yb = (0.02 + 0.25 * (self.z / self.dop)) * dop_mm
+                else: yb = (0.1 + 0.7 * (self.z / self.dop)) * dop_mm
+                
+                # Yr (Lateral Res Displacement)
+                if j == 0: yr = 0.6 * dop_mm
+                elif j == 1: yr = 1.5 * dop_mm
+                else: yr = 2.8 * dop_mm
+
+                results.append({
+                    "Surface": surf_name,
+                    "Estimate": est_name,
+                    "Axial Brk (kN/m)": round(abrk, 2),
+                    "Xbrk (mm)": round(xb, 2),
+                    "Axial Res (kN/m)": round(ares, 2),
+                    "Xres (mm)": round(xr, 2),
+                    "Lat Brk (kN/m)": round(lbrk, 2),
+                    "Ybrk (mm)": round(yb, 2),
+                    "Lat Res (kN/m)": round(lres, 2),
+                    "Yres (mm)": round(yr, 2)
+                })
+                
+        return weights, geo, pd.DataFrame(results)
