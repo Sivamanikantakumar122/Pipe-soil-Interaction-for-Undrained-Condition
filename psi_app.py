@@ -1,135 +1,139 @@
 import streamlit as st
-import plotly.graph_objects as go
-import psi_backend as backend  # Imports your translated logic
+import pandas as pd
+import matplotlib.pyplot as plt
+from psi_backend import PSI_Undrained_Model
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="PSI Analysis (VBA Port)", layout="wide")
-st.title("Pipe-Soil Interaction Analysis (Undrained)")
-st.markdown("This app replicates your Excel/VBA logic for Undrained Pipe-Soil Interaction.")
+st.set_page_config(page_title="PSI Analysis (Undrained)", layout="wide")
 
-# --- 1. INPUTS (SIDEBAR) ---
-with st.sidebar:
-    st.header("1. Pipeline Geometry")
-    Dop = st.number_input("Outer Diameter, Dop (m)", value=0.3239, format="%.4f")
-    tp = st.number_input("Wall Thickness, tp (m)", value=0.0127, format="%.4f")
-    Z = st.number_input("Penetration Depth, Z (m)", value=0.05)
+st.title("Pipe-Soil Interaction Analysis (Undrained Case)")
+st.markdown("### Python Conversion of Undrained PSI VBA Model")
+
+# --- SIDEBAR INPUTS ---
+st.sidebar.header("1. Geometry & Soil Inputs")
+
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    Dop = st.number_input("Outer Diameter (Dop) [m]", value=0.40, format="%.3f")
+    tp = st.number_input("Wall Thickness (tp) [m]", value=0.015, format="%.3f")
+    Z = st.number_input("Embedment Depth (Z) [m]", value=0.10, format="%.3f")
+with col2:
+    Su = st.number_input("Shear Strength (Su) [kPa]", value=5.0, format="%.2f")
+    OCR = st.number_input("OCR", value=1.0, format="%.2f")
+    St = st.number_input("Sensitivity (St)", value=3.0, format="%.2f")
+
+st.sidebar.header("2. Interaction Factors")
+alpha = st.sidebar.number_input("Adhesion Factor (alpha)", value=1.0, format="%.2f")
+rate = st.sidebar.number_input("Displacement Rate", value=1.0, format="%.2f")
+sub_wt_input = st.sidebar.number_input("Submerged Wt Input (from B9)", value=18.0, help="Value from Excel Cell B9. Code will subtract 10.05 automatically.")
+
+with st.sidebar.expander("Advanced Coefficients (SSR & Prem)"):
+    st.markdown("**Concrete Surface**")
+    c_ssr = [
+        st.number_input("Conc SSR (Low)", value=0.8),
+        st.number_input("Conc SSR (Best)", value=1.0),
+        st.number_input("Conc SSR (High)", value=1.2)
+    ]
+    c_prem = [
+        st.number_input("Conc Prem (Low)", value=0.2),
+        st.number_input("Conc Prem (Best)", value=0.25),
+        st.number_input("Conc Prem (High)", value=0.3)
+    ]
     
-    st.header("2. Soil Properties")
-    Su = st.number_input("Shear Strength, Su (kPa)", value=5.0)
-    gamma_bulk = st.number_input("Bulk Unit Weight (kN/m³)", value=16.0)
-    Su_passive = st.number_input("Passive Su (kPa)", value=5.0)
-    OCR = st.number_input("OCR", value=1.0)
-    St = st.number_input("Sensitivity, St", value=3.0)
-    
-    st.header("3. Interaction Factors")
-    alpha = st.number_input("Adhesion Factor, α", value=0.5)
-    rate = st.number_input("Rate Factor", value=1.0)
-    
-    st.markdown("---")
-    st.header("4. Interface Parameters")
-    
-    # Helper to create inputs for surface estimates
-    def get_surface_inputs(name):
-        st.subheader(f"{name} Surface")
-        data = {}
-        for est in ["P5", "P50", "P95"]:
-            # Default values roughly based on typical ranges
-            def_ssr = 0.25 if est=="P5" else (0.35 if est=="P50" else 0.45)
-            def_prem = 1.0
-            
-            c1, c2 = st.columns(2)
-            data[f"{name}_{est}_SSR"] = c1.number_input(f"{est} SSR ({name})", value=def_ssr)
-            data[f"{name}_{est}_Prem"] = c2.number_input(f"{est} γprem ({name})", value=def_prem)
-        return data
+    st.markdown("**PET Surface**")
+    p_ssr = [
+        st.number_input("PET SSR (Low)", value=0.7),
+        st.number_input("PET SSR (Best)", value=0.9),
+        st.number_input("PET SSR (High)", value=1.1)
+    ]
+    p_prem = [
+        st.number_input("PET Prem (Low)", value=0.15),
+        st.number_input("PET Prem (Best)", value=0.2),
+        st.number_input("PET Prem (High)", value=0.25)
+    ]
 
-    # Collect Concrete and PET inputs
-    conc_inputs = get_surface_inputs("Concrete")
-    pet_inputs = get_surface_inputs("PET")
-
-# --- 2. RUN CALCULATIONS ---
-# Combine all inputs into one dictionary for the backend
-all_inputs = {
-    'Dop': Dop, 'tp': tp, 'Z': Z,
-    'Su': Su, 'OCR': OCR, 'St': St,
-    'alpha': alpha, 'rate': rate,
-    'gamma_bulk': gamma_bulk, 'Su_passive': Su_passive
-}
-all_inputs.update(conc_inputs)
-all_inputs.update(pet_inputs)
-
-# CALL THE BACKEND
-results = backend.run_psi_analysis(all_inputs)
-metrics = results["metrics"]
-
-# --- 3. DISPLAY METRICS (OUTPUT TAB) ---
-st.subheader("Calculation Checks")
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Pipe Weight (Wp)", f"{metrics['Wp']:.2f} kg/m")
-c2.metric("Flooded Weight (Wpf)", f"{metrics['Wpf']:.3f} kN/m")
-c3.metric("Effective Force (V)", f"{metrics['V']:.3f} kN/m")
-c4.metric("Vertical Capacity (Qv)", f"{metrics['Qv']:.3f} kN/m")
-
-c5, c6, c7 = st.columns(3)
-c5.metric("Wedging Factor (ζ)", f"{metrics['zeta']:.3f}")
-c6.metric("Lateral Soil Remain", f"{metrics['Fl_remain']:.3f} kN/m")
-status = "OK (V < Qv)" if metrics['Check_V_Qv'] else "WARNING (V >= Qv)"
-c7.metric("Stability Check", status, delta_color="normal" if metrics['Check_V_Qv'] else "inverse")
-
-st.divider()
-
-# --- 4. PLOTTING ---
-st.subheader("Resistance Profiles")
-
-def plot_single_curve(profile_data, mode="Axial"):
-    """Helper to generate Plotly figures from backend data"""
-    fig = go.Figure()
-    
-    colors = {"P5": "green", "P50": "blue", "P95": "red"}
-    
-    # Filter data for specific mode (Axial/Lateral)
-    data_key = mode  # "Axial" or "Lateral"
-    
-    # Loop through the results to find matching profiles
-    # The backend returns a list of profiles, we group them by Estimate for the chart
-    current_surface = profile_data[0]["Surface"] # Assuming we pass data for one surface
-    
-    for item in profile_data:
-        est = item["Estimate"]
-        d = item[mode] # Get the sub-dictionary (BreakForce, BreakDisp, etc.)
-        
-        # Create points: (0,0) -> (Breakout) -> (Residual)
-        # Convert mm to plotted units if needed, keeping simple
-        x_vals = [0, d["BreakDisp"], d["ResDisp"], d["ResDisp"]*1.2]
-        y_vals = [0, d["BreakForce"], d["ResForce"], d["ResForce"]]
-        
-        fig.add_trace(go.Scatter(
-            x=x_vals, y=y_vals, 
-            mode='lines+markers',
-            name=f"{est}",
-            line=dict(color=colors.get(est, "gray"))
-        ))
-        
-    fig.update_layout(
-        title=f"{mode} Resistance - {current_surface}",
-        xaxis_title="Displacement (mm)",
-        yaxis_title="Resistance (kN/m)",
-        height=350,
-        margin=dict(l=20, r=20, t=40, b=20)
+# --- EXECUTION ---
+if st.button("Run Analysis", type="primary"):
+    # Initialize Backend
+    model = PSI_Undrained_Model(
+        Dop, tp, Z, Su, OCR, St, alpha, rate, sub_wt_input,
+        c_ssr, c_prem, p_ssr, p_prem
     )
-    return fig
+    
+    # Run Calculations
+    weights, geo, df_results = model.run_simulation()
+    
+    # --- DISPLAY INTERMEDIATE RESULTS ---
+    st.divider()
+    st.subheader("Intermediate Calculations")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Pipe Weight (Wp)", f"{weights['Wp']:.2f} kg/m")
+    c2.metric("Flooded Weight (Wpf)", f"{weights['Wpf']:.2f} kN/m")
+    c3.metric("Effective Force (V)", f"{weights['V']:.2f} kN/m")
+    c4.metric("Wedging Factor (zeta)", f"{geo['zeta']:.3f}")
+    
+    c5, c6 = st.columns(2)
+    c5.metric("Penetration Area (Abm)", f"{geo['Abm']:.4f} m²")
+    
+    # Visual Alert for V vs Qv
+    delta_v_qv = weights['V'] - geo['Qv']
+    color = "inverse" if delta_v_qv < 0 else "normal" # Streamlit doesn't support red text directly in metric, but we can use delta
+    c6.metric("Soil Resistance (Qv)", f"{geo['Qv']:.2f} kN/m", delta=f"{delta_v_qv:.2f} (V-Qv)", delta_color="inverse")
+    
+    if weights['V'] >= geo['Qv']:
+        st.error(f"WARNING: Effective Force V ({weights['V']:.2f}) >= Soil Resistance Qv ({geo['Qv']:.2f})")
+    else:
+        st.success("Check Passed: V < Qv")
 
-# Separate results by surface
-conc_data = [p for p in results["profiles"] if p["Surface"] == "Concrete"]
-pet_data = [p for p in results["profiles"] if p["Surface"] == "PET"]
+    # --- DISPLAY TABLES ---
+    st.divider()
+    st.subheader("Resistance & Displacement Tables")
+    
+    # Split by surface for cleaner view
+    st.markdown("#### Concrete Surface")
+    st.dataframe(df_results[df_results["Surface"] == "Concrete"].drop(columns=["Surface"]), use_container_width=True)
+    
+    st.markdown("#### PET Surface")
+    st.dataframe(df_results[df_results["Surface"] == "PET"].drop(columns=["Surface"]), use_container_width=True)
 
-tab1, tab2 = st.tabs(["Concrete Surface", "PET Surface"])
+    # --- PLOTTING (Replaces VBA Graphs) ---
+    st.divider()
+    st.subheader("Force-Displacement Curves")
+    
+    # Allow user to select what to plot to avoid clutter
+    plot_surface = st.selectbox("Select Surface to Plot", ["Concrete", "PET"])
+    
+    subset = df_results[df_results["Surface"] == plot_surface]
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Axial Plot
+    for index, row in subset.iterrows():
+        # Plot simplified bilinear behavior (0 -> Break -> Res)
+        x_pts = [0, row['Xbrk (mm)'], row['Xres (mm)']]
+        y_pts = [0, row['Axial Brk (kN/m)'], row['Axial Res (kN/m)']]
+        ax1.plot(x_pts, y_pts, marker='o', label=row['Estimate'])
+    
+    ax1.set_title(f"{plot_surface} - Axial Resistance")
+    ax1.set_xlabel("Displacement (mm)")
+    ax1.set_ylabel("Resistance (kN/m)")
+    ax1.grid(True, linestyle='--', alpha=0.6)
+    ax1.legend()
 
-with tab1:
-    col_a, col_b = st.columns(2)
-    col_a.plotly_chart(plot_single_curve(conc_data, "Axial"), use_container_width=True)
-    col_b.plotly_chart(plot_single_curve(conc_data, "Lateral"), use_container_width=True)
+    # Lateral Plot
+    for index, row in subset.iterrows():
+        x_pts = [0, row['Ybrk (mm)'], row['Yres (mm)']]
+        y_pts = [0, row['Lat Brk (kN/m)'], row['Lat Res (kN/m)']]
+        ax2.plot(x_pts, y_pts, marker='o', label=row['Estimate'])
 
-with tab2:
-    col_a, col_b = st.columns(2)
-    col_a.plotly_chart(plot_single_curve(pet_data, "Axial"), use_container_width=True)
-    col_b.plotly_chart(plot_single_curve(pet_data, "Lateral"), use_container_width=True)
+    ax2.set_title(f"{plot_surface} - Lateral Resistance")
+    ax2.set_xlabel("Displacement (mm)")
+    ax2.set_ylabel("Resistance (kN/m)")
+    ax2.grid(True, linestyle='--', alpha=0.6)
+    ax2.legend()
+    
+    st.pyplot(fig)
+
+else:
+    st.info("Adjust inputs in the sidebar and click 'Run Analysis'.")
