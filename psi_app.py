@@ -73,7 +73,7 @@ if st.button("Run Analysis", type="primary"):
 
     # Initialize Backend
     model = PSI_Undrained_Backend(
-        dop, tp, z, su, ocr, st_sens, alpha, rate, sub_wt_raw, su_b14,
+        dop, tp, z, su, ocr, st_sens, alpha, rate, Bulk_wt_raw, su_b14,
         coeffs_conc, coeffs_pet
     )
     
@@ -123,6 +123,7 @@ if st.button("Run Analysis", type="primary"):
 
 else:
     st.info("Adjust inputs on the left sidebar and click 'Run Analysis' to see results.")
+
 
 
 
