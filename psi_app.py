@@ -102,9 +102,9 @@ if st.button("Run Analysis", type="primary"):
                 delta=f"{qv_delta:.2f} (V - Qv)", delta_color="inverse")
 
     if inter['V'] >= inter['Qv']:
-        st.warning("⚠️ WARNING: Effective Force (V) >= Soil Resistance (Qv). Pipe may sink.")
+        st.warning("⚠️ WARNING: Effective Force (V) >= Soil Resistance (Qv). Increase Penetration value to reach Qv.")
     else:
-        st.success("✅ Check Passed: V < Qv .Increase Penetration value to reach Qv")
+        st.success("✅ Check Passed: V < Qv ")
 
     st.markdown("---")
 
@@ -123,6 +123,7 @@ if st.button("Run Analysis", type="primary"):
 
 else:
     st.info("Adjust inputs on the left sidebar and click 'Run Analysis' to see results.")
+
 
 
 
