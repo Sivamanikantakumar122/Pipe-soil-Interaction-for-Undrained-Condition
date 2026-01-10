@@ -38,17 +38,17 @@ su_b14 = num_input("Su Surface (B14 Value)", 5.0)
 # --- COEFFICIENT INPUTS (Advanced) ---
 with st.sidebar.expander("3. Surface Coefficients (SSR/Prem)"):
     st.markdown("**Concrete Surface**")
-    c_ssr_p5 = st.number_input("Conc SSR (P5)", 0.8)
-    c_ssr_p50 = st.number_input("Conc SSR (P50)", 1.0)
-    c_ssr_p95 = st.number_input("Conc SSR (P95)", 1.2)
+    c_ssr_p5 = st.number_input("Conc SSR (P5)", 0.25)
+    c_ssr_p50 = st.number_input("Conc SSR (P50)", 0.25)
+    c_ssr_p95 = st.number_input("Conc SSR (P95)", 0.25)
     c_prem_p5 = st.number_input("Conc Prem (P5)", 0.2)
     c_prem_p50 = st.number_input("Conc Prem (P50)", 0.25)
     c_prem_p95 = st.number_input("Conc Prem (P95)", 0.3)
     
     st.markdown("**PET Surface**")
-    p_ssr_p5 = st.number_input("PET SSR (P5)", 0.7)
-    p_ssr_p50 = st.number_input("PET SSR (P50)", 0.9)
-    p_ssr_p95 = st.number_input("PET SSR (P95)", 1.1)
+    p_ssr_p5 = st.number_input("PET SSR (P5)", 0.25)
+    p_ssr_p50 = st.number_input("PET SSR (P50)", 0.25)
+    p_ssr_p95 = st.number_input("PET SSR (P95)", 0.25)
     p_prem_p5 = st.number_input("PET Prem (P5)", 0.15)
     p_prem_p50 = st.number_input("PET Prem (P50)", 0.2)
     p_prem_p95 = st.number_input("PET Prem (P95)", 0.25)
@@ -123,4 +123,5 @@ if st.button("Run Analysis", type="primary"):
 
 else:
     st.info("Adjust inputs on the left sidebar and click 'Run Analysis' to see results.")
+
 
