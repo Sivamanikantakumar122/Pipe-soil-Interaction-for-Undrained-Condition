@@ -26,14 +26,14 @@ with col_sb2:
     ocr = num_input("OCR", 1.0)
     st_sens = num_input("Sensitivity (St)", 3.0)
     alpha = num_input("Adhesion (alpha)", 1.0)
-    rate = num_input("Disp. Rate", 1.0)
+    rate = num_input("Rate. factor", 1.0)
 
 st.sidebar.markdown("---")
 st.sidebar.header("2. Weight & Constants")
 st.markdown("### Developed by **Sivamanikanta Kumar**")
 st.markdown("Geotechnical Engineer")
 sub_wt_raw = num_input("Submerged Wt (B9 Raw)", 18.0)
-su_b14 = num_input("Su Surface (B14 Value)", 5.0)
+su_b14 = num_input("Su Passive (B14 Value)", 5.0)
 
 # --- COEFFICIENT INPUTS (Advanced) ---
 with st.sidebar.expander("3. Surface Coefficients (SSR/Prem)"):
@@ -123,5 +123,6 @@ if st.button("Run Analysis", type="primary"):
 
 else:
     st.info("Adjust inputs on the left sidebar and click 'Run Analysis' to see results.")
+
 
 
