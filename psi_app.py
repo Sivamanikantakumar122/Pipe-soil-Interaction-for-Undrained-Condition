@@ -1,139 +1,123 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-from psi_backend import PSI_Undrained_Model
+from psi_backend import PSI_Undrained_Backend
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="PSI Analysis (Undrained)", layout="wide")
+# Page Config
+st.set_page_config(page_title="PSI Undrained Analysis", layout="wide")
 
-st.title("Pipe-Soil Interaction Analysis (Undrained Case)")
-st.markdown("### Python Conversion of Undrained PSI VBA Model")
+st.title("PSI Analysis (Undrained Case)")
+st.markdown("---")
 
 # --- SIDEBAR INPUTS ---
-st.sidebar.header("1. Geometry & Soil Inputs")
+st.sidebar.header("1. Geometry & Soil Params")
 
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    Dop = st.number_input("Outer Diameter (Dop) [m]", value=0.40, format="%.3f")
-    tp = st.number_input("Wall Thickness (tp) [m]", value=0.015, format="%.3f")
-    Z = st.number_input("Embedment Depth (Z) [m]", value=0.10, format="%.3f")
-with col2:
-    Su = st.number_input("Shear Strength (Su) [kPa]", value=5.0, format="%.2f")
-    OCR = st.number_input("OCR", value=1.0, format="%.2f")
-    St = st.number_input("Sensitivity (St)", value=3.0, format="%.2f")
+# Helper function for number inputs
+def num_input(label, val, key=None):
+    return st.sidebar.number_input(label, value=float(val), format="%.4f", key=key)
 
-st.sidebar.header("2. Interaction Factors")
-alpha = st.sidebar.number_input("Adhesion Factor (alpha)", value=1.0, format="%.2f")
-rate = st.sidebar.number_input("Displacement Rate", value=1.0, format="%.2f")
-sub_wt_input = st.sidebar.number_input("Submerged Wt Input (from B9)", value=18.0, help="Value from Excel Cell B9. Code will subtract 10.05 automatically.")
+col_sb1, col_sb2 = st.sidebar.columns(2)
+with col_sb1:
+    dop = num_input("Outer Dia (Dop) [m]", 0.40)
+    tp = num_input("Wall Thk (tp) [m]", 0.015)
+    z = num_input("Embedment (Z) [m]", 0.10)
+    su = num_input("Shear Str (Su) [kPa]", 5.0)
 
-with st.sidebar.expander("Advanced Coefficients (SSR & Prem)"):
+with col_sb2:
+    ocr = num_input("OCR", 1.0)
+    st_sens = num_input("Sensitivity (St)", 3.0)
+    alpha = num_input("Adhesion (alpha)", 1.0)
+    rate = num_input("Disp. Rate", 1.0)
+
+st.sidebar.markdown("---")
+st.sidebar.header("2. Weight & Constants")
+sub_wt_raw = num_input("Submerged Wt (B9 Raw)", 18.0)
+su_b14 = num_input("Su Surface (B14 Value)", 5.0)
+
+# --- COEFFICIENT INPUTS (Advanced) ---
+with st.sidebar.expander("3. Surface Coefficients (SSR/Prem)"):
     st.markdown("**Concrete Surface**")
-    c_ssr = [
-        st.number_input("Conc SSR (Low)", value=0.8),
-        st.number_input("Conc SSR (Best)", value=1.0),
-        st.number_input("Conc SSR (High)", value=1.2)
-    ]
-    c_prem = [
-        st.number_input("Conc Prem (Low)", value=0.2),
-        st.number_input("Conc Prem (Best)", value=0.25),
-        st.number_input("Conc Prem (High)", value=0.3)
-    ]
+    c_ssr_p5 = st.number_input("Conc SSR (P5)", 0.8)
+    c_ssr_p50 = st.number_input("Conc SSR (P50)", 1.0)
+    c_ssr_p95 = st.number_input("Conc SSR (P95)", 1.2)
+    c_prem_p5 = st.number_input("Conc Prem (P5)", 0.2)
+    c_prem_p50 = st.number_input("Conc Prem (P50)", 0.25)
+    c_prem_p95 = st.number_input("Conc Prem (P95)", 0.3)
     
     st.markdown("**PET Surface**")
-    p_ssr = [
-        st.number_input("PET SSR (Low)", value=0.7),
-        st.number_input("PET SSR (Best)", value=0.9),
-        st.number_input("PET SSR (High)", value=1.1)
-    ]
-    p_prem = [
-        st.number_input("PET Prem (Low)", value=0.15),
-        st.number_input("PET Prem (Best)", value=0.2),
-        st.number_input("PET Prem (High)", value=0.25)
-    ]
+    p_ssr_p5 = st.number_input("PET SSR (P5)", 0.7)
+    p_ssr_p50 = st.number_input("PET SSR (P50)", 0.9)
+    p_ssr_p95 = st.number_input("PET SSR (P95)", 1.1)
+    p_prem_p5 = st.number_input("PET Prem (P5)", 0.15)
+    p_prem_p50 = st.number_input("PET Prem (P50)", 0.2)
+    p_prem_p95 = st.number_input("PET Prem (P95)", 0.25)
 
-# --- EXECUTION ---
+# Group coefficients for backend
+coeffs_conc = {
+    'SSR': [c_ssr_p5, c_ssr_p50, c_ssr_p95],
+    'Prem': [c_prem_p5, c_prem_p50, c_prem_p95]
+}
+coeffs_pet = {
+    'SSR': [p_ssr_p5, p_ssr_p50, p_ssr_p95],
+    'Prem': [p_prem_p5, p_prem_p50, p_prem_p95]
+}
+
+# --- MAIN EXECUTION ---
 if st.button("Run Analysis", type="primary"):
+    
+    # Validation
+    if dop <= 0 or su <= 0 or st_sens <= 0:
+        st.error("Input Error: Dop, Su, and St must be greater than zero.")
+        st.stop()
+
     # Initialize Backend
-    model = PSI_Undrained_Model(
-        Dop, tp, Z, Su, OCR, St, alpha, rate, sub_wt_input,
-        c_ssr, c_prem, p_ssr, p_prem
+    model = PSI_Undrained_Backend(
+        dop, tp, z, su, ocr, st_sens, alpha, rate, sub_wt_raw, su_b14,
+        coeffs_conc, coeffs_pet
     )
     
     # Run Calculations
-    weights, geo, df_results = model.run_simulation()
+    inter = model.calculate_intermediates()
+    df_results = model.generate_tables(inter['V'], inter['zeta'], inter['Fl_remain'])
     
-    # --- DISPLAY INTERMEDIATE RESULTS ---
-    st.divider()
+    # --- OUTPUT SECTION ---
+    
+    # 1. Intermediate Data Display
     st.subheader("Intermediate Calculations")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Pipe Weight (Wp)", f"{inter['Wp']:.2f} kg/m")
+    col2.metric("Flooded Wt (Wpf)", f"{inter['Wpf']:.2f} kN/m")
+    col3.metric("Effective Force (V)", f"{inter['V']:.2f} kN/m")
+    col4.metric("Wedging (zeta)", f"{inter['zeta']:.2f}")
     
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Pipe Weight (Wp)", f"{weights['Wp']:.2f} kg/m")
-    c2.metric("Flooded Weight (Wpf)", f"{weights['Wpf']:.2f} kN/m")
-    c3.metric("Effective Force (V)", f"{weights['V']:.2f} kN/m")
-    c4.metric("Wedging Factor (zeta)", f"{geo['zeta']:.3f}")
+    col5, col6, col7 = st.columns(3)
+    col5.metric("Penetration Area", f"{inter['Abm']:.4f} m²")
+    col6.metric("Passive Res (Fl)", f"{inter['Fl_remain']:.2f} kN/m")
     
-    c5, c6 = st.columns(2)
-    c5.metric("Penetration Area (Abm)", f"{geo['Abm']:.4f} m²")
-    
-    # Visual Alert for V vs Qv
-    delta_v_qv = weights['V'] - geo['Qv']
-    color = "inverse" if delta_v_qv < 0 else "normal" # Streamlit doesn't support red text directly in metric, but we can use delta
-    c6.metric("Soil Resistance (Qv)", f"{geo['Qv']:.2f} kN/m", delta=f"{delta_v_qv:.2f} (V-Qv)", delta_color="inverse")
-    
-    if weights['V'] >= geo['Qv']:
-        st.error(f"WARNING: Effective Force V ({weights['V']:.2f}) >= Soil Resistance Qv ({geo['Qv']:.2f})")
-    else:
-        st.success("Check Passed: V < Qv")
+    # Qv Check Logic
+    qv_delta = inter['V'] - inter['Qv']
+    qv_color = "inverse" if qv_delta < 0 else "normal" # inverse is red in streamlit usually for delta
+    col7.metric("Soil Resistance (Qv)", f"{inter['Qv']:.2f} kN/m", 
+                delta=f"{qv_delta:.2f} (V - Qv)", delta_color="inverse")
 
-    # --- DISPLAY TABLES ---
-    st.divider()
+    if inter['V'] >= inter['Qv']:
+        st.warning("⚠️ WARNING: Effective Force (V) >= Soil Resistance (Qv). Pipe may sink.")
+    else:
+        st.success("✅ Check Passed: V < Qv")
+
+    st.markdown("---")
+
+    # 2. Result Tables
     st.subheader("Resistance & Displacement Tables")
     
-    # Split by surface for cleaner view
+    # Filter and display Concrete Table
     st.markdown("#### Concrete Surface")
-    st.dataframe(df_results[df_results["Surface"] == "Concrete"].drop(columns=["Surface"]), use_container_width=True)
+    df_conc = df_results[df_results["Surface"] == "CONCRETE SURFACE"].drop(columns=["Surface"])
+    st.dataframe(df_conc, use_container_width=True, hide_index=True)
     
+    # Filter and display PET Table
     st.markdown("#### PET Surface")
-    st.dataframe(df_results[df_results["Surface"] == "PET"].drop(columns=["Surface"]), use_container_width=True)
-
-    # --- PLOTTING (Replaces VBA Graphs) ---
-    st.divider()
-    st.subheader("Force-Displacement Curves")
-    
-    # Allow user to select what to plot to avoid clutter
-    plot_surface = st.selectbox("Select Surface to Plot", ["Concrete", "PET"])
-    
-    subset = df_results[df_results["Surface"] == plot_surface]
-    
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Axial Plot
-    for index, row in subset.iterrows():
-        # Plot simplified bilinear behavior (0 -> Break -> Res)
-        x_pts = [0, row['Xbrk (mm)'], row['Xres (mm)']]
-        y_pts = [0, row['Axial Brk (kN/m)'], row['Axial Res (kN/m)']]
-        ax1.plot(x_pts, y_pts, marker='o', label=row['Estimate'])
-    
-    ax1.set_title(f"{plot_surface} - Axial Resistance")
-    ax1.set_xlabel("Displacement (mm)")
-    ax1.set_ylabel("Resistance (kN/m)")
-    ax1.grid(True, linestyle='--', alpha=0.6)
-    ax1.legend()
-
-    # Lateral Plot
-    for index, row in subset.iterrows():
-        x_pts = [0, row['Ybrk (mm)'], row['Yres (mm)']]
-        y_pts = [0, row['Lat Brk (kN/m)'], row['Lat Res (kN/m)']]
-        ax2.plot(x_pts, y_pts, marker='o', label=row['Estimate'])
-
-    ax2.set_title(f"{plot_surface} - Lateral Resistance")
-    ax2.set_xlabel("Displacement (mm)")
-    ax2.set_ylabel("Resistance (kN/m)")
-    ax2.grid(True, linestyle='--', alpha=0.6)
-    ax2.legend()
-    
-    st.pyplot(fig)
+    df_pet = df_results[df_results["Surface"] == "PET SURFACE"].drop(columns=["Surface"])
+    st.dataframe(df_pet, use_container_width=True, hide_index=True)
 
 else:
-    st.info("Adjust inputs in the sidebar and click 'Run Analysis'.")
+    st.info("Adjust inputs on the left sidebar and click 'Run Analysis' to see results.")
