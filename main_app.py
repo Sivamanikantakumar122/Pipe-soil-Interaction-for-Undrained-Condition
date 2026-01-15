@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 # Import your existing backend classes
 # Ensure these files are in the same directory
-from psi_backend import PSI_Undrained_Model
-from trenched_psi_backend import Trenched_PSI_Backend
+from psi_app.py import PSI_Undrained_Model
+from psi_backend.py import Trenched_PSI_Backend
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Unified PSI Analysis Tool", layout="wide")
@@ -210,3 +210,4 @@ elif analysis_mode == "Trenched Pipeline":
         # Chart
         st.subheader("Resistance Comparison")
         st.bar_chart(df_results.set_index("Category"))
+
